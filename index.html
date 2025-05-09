@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Permissions-Policy" content="camera=(), microphone=()">
   <title>Live Signboard Translator with Camera Switch</title>
   <style>
     body {
@@ -66,22 +67,44 @@
     let currentStream = null;
     let lastSpoken = "";
 
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Your browser does not support the camera API. Please try a modern browser.');
+    }
+
     async function startCamera() {
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
 
-      const facingMode = usingBackCamera ? "environment" : "user";
+      const constraints = {
+        video: {
+          facingMode: { ideal: usingBackCamera ? "environment" : "user" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
 
       try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facingMode } },
-          audio: false
-        });
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = currentStream;
+        video.onloadedmetadata = () => {
+          video.play();
+        };
       } catch (err) {
-        alert("Camera access failed.");
-        console.error(err);
+        console.error("Camera access error:", err);
+        alert(`Camera access failed: ${err.message}. Please ensure you've granted camera permissions.`);
+        
+        // Try fallback to any available camera
+        try {
+          currentStream = await navigator.mediaDevices.getUserMedia({ 
+            video: true, 
+            audio: false 
+          });
+          video.srcObject = currentStream;
+        } catch (fallbackErr) {
+          console.error("Fallback camera access failed:", fallbackErr);
+        }
       }
     }
 
