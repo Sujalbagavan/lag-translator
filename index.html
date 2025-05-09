@@ -2,43 +2,43 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Live Signboard Translator</title>
+  <title>Live Signboard Translator with Camera Switch</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       text-align: center;
-      background-color: #f2f2f2;
+      background: #f4f4f4;
       padding: 20px;
     }
     video, canvas {
       width: 90%;
       max-width: 600px;
       margin: 10px auto;
-      border: 2px solid #333;
-      border-radius: 8px;
+      border: 2px solid #444;
+      border-radius: 10px;
     }
-    select {
+    select, button {
       padding: 10px;
-      margin: 15px;
+      margin: 10px;
       font-size: 16px;
     }
     #translatedText {
+      margin-top: 15px;
       font-size: 20px;
       font-weight: bold;
-      margin-top: 10px;
-      color: #444;
+      color: #333;
     }
   </style>
 </head>
 <body>
 
-  <h1>📷 Live Signboard Translator with Speech</h1>
+  <h2>📸 Live Signboard Translator</h2>
 
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas" style="display: none;"></canvas>
 
   <div>
-    <label>Select language: </label>
+    <label>Translate to: </label>
     <select id="languageSelect">
       <option value="hi">Hindi</option>
       <option value="gu">Gujarati</option>
@@ -48,40 +48,55 @@
       <option value="es">Spanish</option>
       <option value="de">German</option>
     </select>
+
+    <button onclick="toggleCamera()">🔄 Switch Camera</button>
   </div>
 
   <div id="translatedText">Translation will appear here...</div>
 
-  <!-- Load Tesseract -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
   <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const translatedText = document.getElementById('translatedText');
-    const languageSelect = document.getElementById('languageSelect');
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const languageSelect = document.getElementById("languageSelect");
+    const translatedText = document.getElementById("translatedText");
 
+    let usingBackCamera = true;
+    let currentStream = null;
     let lastSpoken = "";
 
     async function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+
+      const facingMode = usingBackCamera ? "environment" : "user";
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
+        currentStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingMode } },
+          audio: false
+        });
+        video.srcObject = currentStream;
       } catch (err) {
-        alert("Camera access denied or not available.");
+        alert("Camera access failed.");
         console.error(err);
       }
     }
 
+    function toggleCamera() {
+      usingBackCamera = !usingBackCamera;
+      startCamera();
+    }
+
     async function captureAndTranslate() {
-      const context = canvas.getContext('2d');
+      const ctx = canvas.getContext("2d");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      const { data: { words } } = await Tesseract.recognize(canvas, 'eng', {
-        logger: m => console.log(m)
-      });
+      const { data: { words } } = await Tesseract.recognize(canvas, 'eng');
 
       if (!words.length) return;
 
@@ -89,28 +104,25 @@
         (a.bbox.x1 - a.bbox.x0) * (a.bbox.y1 - a.bbox.y0) >
         (b.bbox.x1 - b.bbox.x0) * (b.bbox.y1 - b.bbox.y0) ? a : b);
 
-      let { x0, y0, x1, y1 } = largestWord.bbox;
-      const boxWidth = x1 - x0;
-      const boxHeight = y1 - y0;
+      const { x0, y0, x1, y1 } = largestWord.bbox;
+      const w = x1 - x0;
+      const h = y1 - y0;
 
       const croppedCanvas = document.createElement('canvas');
-      croppedCanvas.width = boxWidth;
-      croppedCanvas.height = boxHeight;
-      const croppedContext = croppedCanvas.getContext('2d');
-      croppedContext.drawImage(canvas, x0, y0, boxWidth, boxHeight, 0, 0, boxWidth, boxHeight);
+      croppedCanvas.width = w;
+      croppedCanvas.height = h;
+      croppedCanvas.getContext('2d').drawImage(canvas, x0, y0, w, h, 0, 0, w, h);
 
       const { data: { text } } = await Tesseract.recognize(croppedCanvas, 'eng');
 
       if (!text.trim()) return;
-
-      const targetLang = languageSelect.value;
 
       const res = await fetch("https://libretranslate.com/translate", {
         method: "POST",
         body: JSON.stringify({
           q: text,
           source: "en",
-          target: targetLang,
+          target: languageSelect.value,
           format: "text"
         }),
         headers: { "Content-Type": "application/json" }
@@ -118,19 +130,20 @@
 
       const json = await res.json();
       const translated = json.translatedText;
+
       translatedText.innerText = translated;
 
-      if (translated && translated !== lastSpoken) {
-        const utterance = new SpeechSynthesisUtterance(translated);
-        utterance.lang = targetLang;
+      if (translated !== lastSpoken) {
+        const utter = new SpeechSynthesisUtterance(translated);
+        utter.lang = languageSelect.value;
         speechSynthesis.cancel();
-        speechSynthesis.speak(utterance);
+        speechSynthesis.speak(utter);
         lastSpoken = translated;
       }
     }
 
     startCamera();
-    setInterval(captureAndTranslate, 3000); // every 3 seconds
+    setInterval(captureAndTranslate, 3000);
   </script>
 
 </body>
